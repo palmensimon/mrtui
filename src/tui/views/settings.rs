@@ -170,7 +170,7 @@ fn field_label(idx: usize) -> &'static str {
         F_URL => "[1] GitLab URL",
         F_TOKEN => "[2] Personal Access Token",
         F_BROWSER => "[3] Browser  (optional — e.g. firefox, chromium, /usr/bin/brave)",
-        F_PROJECTS => "[4] Projects  (one URL per line, optionally followed by a color name: cyan green blue magenta red yellow)",
+        F_PROJECTS => "[4] Projects  (one URL or path per line)",
         _ => "",
     }
 }

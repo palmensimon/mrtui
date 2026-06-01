@@ -4,12 +4,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectEntry {
     pub path: String,
-    #[serde(default = "default_color")]
-    pub color: String,
-}
-
-fn default_color() -> String {
-    "white".to_string()
 }
 
 impl ProjectEntry {
@@ -84,44 +78,17 @@ pub fn save_config(config: &Config) -> Result<(), String> {
 }
 
 /// Parse settings textarea text into ProjectEntry list.
-/// Format: one per line, `url-or-path [color]`
+/// Format: one URL or path per line.
 pub fn parse_projects_text(text: &str) -> Vec<ProjectEntry> {
-    let valid_colors = ["cyan", "green", "blue", "magenta", "red", "yellow", "white"];
     text.lines()
         .filter_map(|line| {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                return None;
-            }
-            // Check if last whitespace-separated word is a color name
-            if let Some(idx) = trimmed.rfind(' ') {
-                let maybe_color = trimmed[idx + 1..].to_lowercase();
-                if valid_colors.contains(&maybe_color.as_str()) {
-                    return Some(ProjectEntry {
-                        path: trimmed[..idx].trim().to_string(),
-                        color: maybe_color,
-                    });
-                }
-            }
-            Some(ProjectEntry {
-                path: trimmed.to_string(),
-                color: default_color(),
-            })
+            let path = line.trim().to_string();
+            if path.is_empty() { None } else { Some(ProjectEntry { path }) }
         })
         .collect()
 }
 
 /// Convert ProjectEntry list to textarea display text.
 pub fn projects_to_text(projects: &[ProjectEntry]) -> String {
-    projects
-        .iter()
-        .map(|e| {
-            if e.color == "white" || e.color.is_empty() {
-                e.path.clone()
-            } else {
-                format!("{} {}", e.path, e.color)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    projects.iter().map(|e| e.path.as_str()).collect::<Vec<_>>().join("\n")
 }

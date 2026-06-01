@@ -28,6 +28,19 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
                 app.view = AppView::MrDetail;
             }
         }
+        KeyCode::Char('b') => {
+            if let Some(mr) = app.selected_mr().cloned() {
+                let url = mr.web_url.clone();
+                let browser = app.config.browser.clone();
+                tokio::spawn(async move {
+                    if let Some(cmd) = browser {
+                        std::process::Command::new(&cmd).arg(&url).spawn().ok();
+                    } else {
+                        open::that(url).ok();
+                    }
+                });
+            }
+        }
         KeyCode::Char('r') => app.trigger_load(),
         KeyCode::Char('s') => { app.view = AppView::Settings; app.error = None; }
         KeyCode::Char('/') => {
@@ -255,6 +268,7 @@ pub fn draw_bar(app: &App, frame: &mut Frame, area: Rect) {
     } else {
         hints_line(&[
             ("c", "checkout"),
+            ("b", "browser"),
             ("/", "search"),
             ("r", "refresh"),
             ("s", "settings"),
