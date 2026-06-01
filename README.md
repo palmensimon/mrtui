@@ -17,7 +17,7 @@ A terminal UI for reviewing GitLab merge requests, built with [Ratatui](https://
 ## Install
 
 ```sh
-cargo install --path .
+cargo install --git https://github.com/palmensimon/mrtui.git
 ```
 
 ## Configuration
