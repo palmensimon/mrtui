@@ -3,7 +3,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     config::Config,
-    gitlab::{FileDiff, GitLabClient, MergeRequest, Note},
+    gitlab::{FileDiff, GitLabClient, MergeRequest},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -15,7 +15,6 @@ pub enum AppView {
 
 pub enum AppEvent {
     MrsLoaded(Result<Vec<MergeRequest>, String>),
-    NotesLoaded(Result<Vec<Note>, String>),
     DiffLoaded(Result<Vec<FileDiff>, String>),
     MergeDone(Result<(), String>),
     WorktreeCreated(Result<String, String>),
@@ -34,9 +33,6 @@ pub struct App {
 
     // Detail state (shared with mod.rs overlay logic)
     pub current_mr: Option<MergeRequest>,
-    pub current_notes: Vec<Note>,
-    pub notes_loading: bool,
-    pub notes_error: Option<String>,
     pub current_diff: Vec<FileDiff>,
     pub diff_loading: bool,
 
@@ -69,9 +65,6 @@ impl App {
             local_search_active: false,
             selected_row: 0,
             current_mr: None,
-            current_notes: Vec::new(),
-            notes_loading: false,
-            notes_error: None,
             current_diff: Vec::new(),
             diff_loading: false,
             error: None,
@@ -123,18 +116,6 @@ impl App {
         });
     }
 
-    pub fn trigger_load_notes(&mut self, project_id: u64, iid: u64) {
-        let Some(client) = self.client.clone() else { return };
-        self.notes_loading = true;
-        self.notes_error = None;
-        self.current_notes.clear();
-        let tx = self.event_tx.clone();
-        tokio::spawn(async move {
-            let result = client.get_notes(project_id, iid).await.map_err(|e| e.to_string());
-            let _ = tx.send(AppEvent::NotesLoaded(result)).await;
-        });
-    }
-
     pub fn trigger_load_diff(&mut self, project_id: u64, iid: u64) {
         let Some(client) = self.client.clone() else { return };
         self.diff_loading = true;
@@ -170,24 +151,6 @@ impl App {
                         if self.selected_row > max { self.selected_row = max; }
                     }
                     Err(e) => self.error = Some(e),
-                }
-            }
-            AppEvent::NotesLoaded(result) => {
-                self.notes_loading = false;
-                match result {
-                    Ok(notes) => {
-                        self.current_notes = notes;
-                        self.notes_error = None;
-                    }
-                    Err(e) => {
-                        if e.contains("403") {
-                            self.notes_error = Some(
-                                "Comments unavailable — token lacks notes/discussions access.".to_string(),
-                            );
-                        } else {
-                            self.error = Some(e);
-                        }
-                    }
                 }
             }
             AppEvent::DiffLoaded(result) => {

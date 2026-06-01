@@ -13,7 +13,7 @@ use crate::{
     tui::app::{App, AppView},
 };
 
-use super::mr_list::{color_from_str, hints_line, label_color, right_label};
+use super::mr_list::{hints_line, label_color, right_label};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DetailTab {
@@ -68,7 +68,6 @@ pub fn handle_key(app: &mut App, state: &mut DetailState, key: KeyEvent) {
         KeyCode::Esc | KeyCode::Backspace => {
             app.view = AppView::MrList;
             app.current_mr = None;
-            app.current_notes.clear();
             app.current_diff.clear();
             app.error = None;
             state.scroll = 0;
@@ -105,14 +104,16 @@ pub fn handle_key(app: &mut App, state: &mut DetailState, key: KeyEvent) {
         KeyCode::Char('b') => {
             if let Some(ref mr) = app.current_mr {
                 let url = mr.web_url.clone();
-                tokio::spawn(async move { open::that(url).ok(); });
+                let browser = app.config.browser.clone();
+                open_url(url, browser);
             }
             return;
         }
         KeyCode::Char('o') => {
             if !state.media_urls.is_empty() {
                 let url = state.media_urls[state.media_url_idx].clone();
-                tokio::spawn(async move { open::that(url).ok(); });
+                let browser = app.config.browser.clone();
+                open_url(url, browser);
                 state.media_url_idx = (state.media_url_idx + 1) % state.media_urls.len();
             }
             return;
@@ -166,7 +167,6 @@ pub fn draw(app: &App, state: &mut DetailState, frame: &mut Frame, area: Rect) {
 
     match state.tab {
         DetailTab::Description => draw_description(mr, state, frame, chunks[3]),
-        DetailTab::Comments => draw_comments(app, state, frame, chunks[3]),
         DetailTab::Diff => draw_diff(app, state, frame, chunks[3]),
     }
 
@@ -234,14 +234,6 @@ fn draw_info(mr: &MergeRequest, frame: &mut Frame, area: Rect) {
         Span::styled("   Status ", Style::default().fg(Color::DarkGray)),
         Span::styled(mr.status_label().to_string(), Style::default().fg(merge_color)),
     ]);
-    if let Some(pipeline) = mr.any_pipeline() {
-        let color = color_from_str(pipeline.color_name());
-        top.push(Span::styled("   Pipeline ", Style::default().fg(Color::DarkGray)));
-        top.push(Span::styled(
-            format!("{} {}", pipeline.icon(), pipeline.status),
-            Style::default().fg(color),
-        ));
-    }
     if !mr.labels.is_empty() {
         top.push(Span::styled("   Labels ", Style::default().fg(Color::DarkGray)));
         for (i, label) in mr.labels.iter().enumerate() {
@@ -274,7 +266,7 @@ fn draw_tab_bar(app: &App, state: &DetailState, frame: &mut Frame, area: Rect) {
     frame.render_widget(block, area);
 
     let mut spans = vec![Span::raw(" ")];
-    for tab in [DetailTab::Description, DetailTab::Comments, DetailTab::Diff] {
+    for tab in [DetailTab::Description, DetailTab::Diff] {
         let label = match tab {
             DetailTab::Diff if app.diff_loading => "Diff (loading…)".to_string(),
             _ => tab.label().to_string(),
@@ -313,50 +305,14 @@ fn draw_description(mr: &MergeRequest, state: &DetailState, frame: &mut Frame, a
     frame.render_widget(Paragraph::new(lines).scroll((state.scroll, 0)), area);
 }
 
-fn draw_comments(app: &App, state: &DetailState, frame: &mut Frame, area: Rect) {
-    if app.notes_loading {
-        frame.render_widget(
-            Paragraph::new(Span::styled(" Loading comments…", Style::default().fg(Color::DarkGray))),
-            area,
-        );
-        return;
-    }
-
-    if let Some(ref err) = app.notes_error {
-        frame.render_widget(
-            Paragraph::new(Span::styled(format!(" {err}"), Style::default().fg(Color::Yellow))),
-            area,
-        );
-        return;
-    }
-
-    let user_notes: Vec<&Note> = app.current_notes.iter().filter(|n| !n.system).collect();
-
-    if user_notes.is_empty() {
-        frame.render_widget(
-            Paragraph::new(Span::styled(" No comments.", Style::default().fg(Color::DarkGray))),
-            area,
-        );
-        return;
-    }
-
-    let mut lines: Vec<Line> = Vec::new();
-    for note in &user_notes {
-        let date = note.created_at.get(..10).unwrap_or(&note.created_at);
-        lines.push(Line::from(vec![
-            Span::styled(format!(" @{}", note.author.username), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  {date}"), Style::default().fg(Color::DarkGray)),
-        ]));
-        for text_line in note.body.lines() {
-            lines.push(Line::from(vec![
-                Span::raw("   "),
-                Span::styled(text_line.to_string(), Style::default().fg(Color::White)),
-            ]));
+fn open_url(url: String, browser: Option<String>) {
+    tokio::spawn(async move {
+        if let Some(cmd) = browser {
+            std::process::Command::new(&cmd).arg(&url).spawn().ok();
+        } else {
+            open::that(url).ok();
         }
-        lines.push(Line::raw(""));
-    }
-
-    frame.render_widget(Paragraph::new(lines).scroll((state.scroll, 0)), area);
+    });
 }
 
 fn draw_diff(app: &App, state: &DetailState, frame: &mut Frame, area: Rect) {
@@ -527,16 +483,13 @@ pub fn draw_bar(app: &App, state: &DetailState, frame: &mut Frame, area: Rect) {
         DetailTab::Description => hints_line(&[
             ("m", "merge"), ("c", "checkout"), ("b", "browser"), ("[ ]", "switch tabs"), ("?", "help"),
         ]),
-        DetailTab::Comments => hints_line(&[
-            ("j/k", "scroll"), ("[ ]", "switch tabs"), ("?", "help"),
-        ]),
         DetailTab::Diff => hints_line(&[
             ("j/k", "scroll"), ("Ctrl+D/U", "half page"), ("Tab/⇧Tab", "next/prev file"), ("[ ]", "switch tabs"), ("?", "help"),
         ]),
     };
     frame.render_widget(Paragraph::new(line), area);
 
-    if app.notes_loading || app.diff_loading {
+    if app.diff_loading {
         right_label(frame, area, "loading… ", Color::DarkGray);
     }
 }

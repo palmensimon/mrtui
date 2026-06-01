@@ -1,6 +1,6 @@
 use reqwest::{Client, header};
 
-use super::types::{ChangesResponse, FileDiff, MergeRequest, Note};
+use super::types::{ChangesResponse, FileDiff, MergeRequest};
 
 pub struct GitLabClient {
     client: Client,
@@ -114,20 +114,6 @@ impl GitLabClient {
             .collect();
 
         self.list_mrs_from_projects(&paths).await
-    }
-
-    pub async fn get_notes(&self, project_id: u64, iid: u64) -> Result<Vec<Note>, String> {
-        let url = self.project_url(project_id, &format!("merge_requests/{iid}/notes?sort=asc&per_page=200"));
-        self.client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {e}"))?
-            .error_for_status()
-            .map_err(|e| format!("API error: {e}"))?
-            .json::<Vec<Note>>()
-            .await
-            .map_err(|e| format!("Parse error: {e}"))
     }
 
     pub async fn get_diff(&self, project_id: u64, iid: u64) -> Result<Vec<FileDiff>, String> {

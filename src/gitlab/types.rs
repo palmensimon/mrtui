@@ -17,31 +17,6 @@ pub struct Milestone {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct Pipeline {
-    pub status: String,
-}
-
-impl Pipeline {
-    pub fn icon(&self) -> &str {
-        match self.status.as_str() {
-            "success" => "✓",
-            "failed" => "✗",
-            "running" | "pending" => "◌",
-            _ => "○",
-        }
-    }
-
-    pub fn color_name(&self) -> &str {
-        match self.status.as_str() {
-            "success" => "green",
-            "failed" => "red",
-            "running" | "pending" => "yellow",
-            _ => "dark_gray",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct MergeRequest {
     pub iid: u64,
     pub project_id: u64,
@@ -63,10 +38,6 @@ pub struct MergeRequest {
     #[serde(default)]
     pub labels: Vec<String>,
     pub milestone: Option<Milestone>,
-    /// Returned by the list endpoint
-    pub pipeline: Option<Pipeline>,
-    /// Returned only by the single-MR GET endpoint
-    pub head_pipeline: Option<Pipeline>,
 }
 
 impl MergeRequest {
@@ -91,24 +62,9 @@ impl MergeRequest {
         self.detailed_merge_status == "mergeable"
     }
 
-    /// Returns the best available pipeline, preferring head_pipeline (single-MR endpoint)
-    /// and falling back to pipeline (list endpoint).
-    pub fn any_pipeline(&self) -> Option<&Pipeline> {
-        self.head_pipeline.as_ref().or(self.pipeline.as_ref())
-    }
-
     pub fn formatted_updated(&self) -> String {
         self.updated_at.get(..10).unwrap_or(&self.updated_at).to_string()
     }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct Note {
-    pub body: String,
-    pub author: User,
-    pub created_at: String,
-    #[serde(default)]
-    pub system: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

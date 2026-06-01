@@ -23,13 +23,9 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Down | KeyCode::Char('j') => app.move_down(),
         KeyCode::Enter => {
             if let Some(mr) = app.selected_mr().cloned() {
-                let project_id = mr.project_id;
-                let iid = mr.iid;
                 app.current_mr = Some(mr);
-                app.current_notes.clear();
                 app.current_diff.clear();
                 app.view = AppView::MrDetail;
-                app.trigger_load_notes(project_id, iid);
             }
         }
         KeyCode::Char('r') => app.trigger_load(),
@@ -145,18 +141,13 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
 }
 
 fn build_row<'a>(mr: &'a MergeRequest) -> Row<'a> {
-    let dot_color = pipeline_dot_color(mr);
-
     let title_style = if mr.draft {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default().fg(Color::White)
     };
 
-    let title_cell = Cell::from(Line::from(vec![
-        Span::styled("● ", Style::default().fg(dot_color)),
-        Span::styled(mr.title.clone(), title_style),
-    ]));
+    let title_cell = Cell::from(Span::styled(mr.title.clone(), title_style));
 
     let labels_cell = Cell::from(labels_line(&mr.labels, 2));
     let milestone_str = mr.milestone.as_ref().map(|m| m.title.clone()).unwrap_or_default();
@@ -169,15 +160,6 @@ fn build_row<'a>(mr: &'a MergeRequest) -> Row<'a> {
         Cell::from(milestone_str).style(Style::default().fg(Color::DarkGray)),
         Cell::from(mr.status_label()).style(Style::default().fg(status_color)),
     ])
-}
-
-fn pipeline_dot_color(mr: &MergeRequest) -> Color {
-    match mr.any_pipeline().map(|p| p.status.as_str()) {
-        Some("success") => Color::Green,
-        Some("failed") => Color::Red,
-        Some("running") => Color::Rgb(255, 140, 0),
-        _ => Color::DarkGray,
-    }
 }
 
 fn status_color(mr: &MergeRequest) -> Color {
@@ -244,18 +226,6 @@ pub fn labels_line(labels: &[String], max_shown: usize) -> Line<'static> {
         ));
     }
     Line::from(spans)
-}
-
-pub fn color_from_str(name: &str) -> Color {
-    match name {
-        "cyan" => Color::Cyan,
-        "green" => Color::Green,
-        "blue" => Color::Blue,
-        "magenta" => Color::Magenta,
-        "red" => Color::Red,
-        "yellow" => Color::Yellow,
-        _ => Color::White,
-    }
 }
 
 pub fn draw_bar(app: &App, frame: &mut Frame, area: Rect) {
