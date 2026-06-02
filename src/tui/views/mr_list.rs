@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -28,6 +30,20 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
                 app.view = AppView::MrDetail;
             }
         }
+        KeyCode::Char('o') => {
+            if let Some(mr) = app.selected_mr() {
+                open_in_editor(app, &mr.source_branch.clone());
+            }
+        }
+        KeyCode::Char('m') => {
+            if let Some(mr) = app.selected_mr().cloned() {
+                if mr.is_mergeable() {
+                    app.trigger_merge(mr.project_id, mr.iid);
+                } else {
+                    app.error = Some(format!("Cannot merge: {}", mr.status_label()));
+                }
+            }
+        }
         KeyCode::Char('b') => {
             if let Some(mr) = app.selected_mr().cloned() {
                 let url = mr.web_url.clone();
@@ -50,6 +66,20 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         }
         _ => {}
     }
+}
+
+pub fn open_in_editor(app: &mut App, branch: &str) {
+    let Some(cmd) = app.config.ide_command.clone() else {
+        app.error = Some("No editor configured — set IDE command in Settings [5]".to_string());
+        return;
+    };
+    let Some(path) = app.checked_out_worktrees.get(branch).cloned() else {
+        app.error = Some("MR is not checked out".to_string());
+        return;
+    };
+    tokio::spawn(async move {
+        std::process::Command::new(&cmd).arg(&path).spawn().ok();
+    });
 }
 
 fn handle_search_key(app: &mut App, key: KeyEvent) {
@@ -132,7 +162,9 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
     ]);
 
     let visible = app.visible_mrs();
-    let rows: Vec<Row> = visible.iter().map(|mr| build_row(mr)).collect();
+    let current_username = app.current_username.as_deref();
+    let checked_out = &app.checked_out_worktrees;
+    let rows: Vec<Row> = visible.iter().map(|mr| build_row(mr, current_username, checked_out)).collect();
 
     let widths = [
         Constraint::Min(36),
@@ -153,14 +185,25 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
-fn build_row<'a>(mr: &'a MergeRequest) -> Row<'a> {
-    let title_style = if mr.draft {
+fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_out: &HashMap<String, String>) -> Row<'a> {
+    let is_mine = current_username.map(|u| u == mr.author.username.as_str()).unwrap_or(false);
+    let is_checked_out = checked_out.contains_key(&mr.source_branch);
+
+    let title_style = if mr.draft || is_mine {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default().fg(Color::White)
     };
 
-    let title_cell = Cell::from(Span::styled(mr.title.clone(), title_style));
+    let title_line = if is_checked_out {
+        Line::from(vec![
+            Span::styled("⊙ ", Style::default().fg(Color::Cyan)),
+            Span::styled(mr.title.clone(), title_style),
+        ])
+    } else {
+        Line::from(Span::styled(mr.title.clone(), title_style))
+    };
+    let title_cell = Cell::from(title_line);
 
     let labels_cell = Cell::from(labels_line(&mr.labels, 2));
     let milestone_str = mr.milestone.as_ref().map(|m| m.title.clone()).unwrap_or_default();
@@ -170,7 +213,7 @@ fn build_row<'a>(mr: &'a MergeRequest) -> Row<'a> {
         title_cell,
         Cell::from(mr.author.username.clone()).style(Style::default().fg(Color::DarkGray)),
         labels_cell,
-        Cell::from(milestone_str).style(Style::default().fg(Color::DarkGray)),
+        Cell::from(milestone_str).style(Style::default().fg(Color::White)),
         Cell::from(mr.status_label()).style(Style::default().fg(status_color)),
     ])
 }
@@ -267,6 +310,8 @@ pub fn draw_bar(app: &App, frame: &mut Frame, area: Rect) {
         Line::from(Span::styled(format!(" {msg}"), Style::default().fg(Color::Green)))
     } else {
         hints_line(&[
+            ("o", "open"),
+            ("m", "merge"),
             ("c", "checkout"),
             ("b", "browser"),
             ("/", "search"),

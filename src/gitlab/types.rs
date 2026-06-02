@@ -1,5 +1,10 @@
 use serde::Deserialize;
 
+#[derive(Debug, Deserialize)]
+pub struct CurrentUser {
+    pub username: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct User {
     pub username: String,

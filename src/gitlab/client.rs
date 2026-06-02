@@ -1,6 +1,6 @@
 use reqwest::{Client, header};
 
-use super::types::{ChangesResponse, FileDiff, MergeRequest};
+use super::types::{ChangesResponse, CurrentUser, FileDiff, MergeRequest};
 
 pub struct GitLabClient {
     client: Client,
@@ -141,5 +141,32 @@ impl GitLabClient {
             .error_for_status()
             .map_err(|e| format!("API error: {e}"))?;
         Ok(())
+    }
+
+    pub async fn approve_mr(&self, project_id: u64, iid: u64) -> Result<(), String> {
+        let url = self.project_url(project_id, &format!("merge_requests/{iid}/approve"));
+        self.client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("API error: {e}"))?;
+        Ok(())
+    }
+
+    pub async fn get_current_user(&self) -> Result<String, String> {
+        let url = format!("{}/api/v4/user", self.base_url);
+        let user: CurrentUser = self.client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("API error: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("Parse error: {e}"))?;
+        Ok(user.username)
     }
 }

@@ -16,8 +16,10 @@ use crate::{
 const F_URL: usize = 0;
 const F_TOKEN: usize = 1;
 const F_BROWSER: usize = 2;
-const F_PROJECTS: usize = 3;
-const FIELD_COUNT: usize = 4;
+const F_WORKTREE: usize = 3;
+const F_IDE: usize = 4;
+const F_PROJECTS: usize = 5;
+const FIELD_COUNT: usize = 6;
 
 pub struct SettingsState {
     inputs: [TextArea<'static>; FIELD_COUNT],
@@ -31,6 +33,8 @@ impl SettingsState {
         inputs[F_URL] = single_line_area(&config.gitlab_url);
         inputs[F_TOKEN] = single_line_area(&config.access_token);
         inputs[F_BROWSER] = single_line_area(config.browser.as_deref().unwrap_or(""));
+        inputs[F_WORKTREE] = single_line_area(config.default_worktree_path.as_deref().unwrap_or(""));
+        inputs[F_IDE] = single_line_area(config.ide_command.as_deref().unwrap_or(""));
         inputs[F_PROJECTS] = multi_line_area(&projects_to_text(&config.projects));
 
         let mut state = Self { inputs, active: 0, editing: false };
@@ -71,6 +75,14 @@ impl SettingsState {
             let s = self.first_line(F_BROWSER);
             if s.is_empty() { None } else { Some(s) }
         };
+        let default_worktree_path = {
+            let s = self.first_line(F_WORKTREE);
+            if s.is_empty() { None } else { Some(s) }
+        };
+        let ide_command = {
+            let s = self.first_line(F_IDE);
+            if s.is_empty() { None } else { Some(s) }
+        };
         let projects = parse_projects_text(&self.projects_text());
 
         if gitlab_url.is_empty() {
@@ -79,7 +91,7 @@ impl SettingsState {
         if access_token.is_empty() {
             return Err("Access token is required".to_string());
         }
-        Ok(Config { gitlab_url, access_token, projects, browser })
+        Ok(Config { gitlab_url, access_token, projects, browser, default_worktree_path, ide_command })
     }
 }
 
@@ -133,7 +145,9 @@ pub fn handle_key(app: &mut App, state: &mut SettingsState, key: KeyEvent) {
         KeyCode::Char('1') => state.move_to(F_URL),
         KeyCode::Char('2') => state.move_to(F_TOKEN),
         KeyCode::Char('3') => state.move_to(F_BROWSER),
-        KeyCode::Char('4') => state.move_to(F_PROJECTS),
+        KeyCode::Char('4') => state.move_to(F_WORKTREE),
+        KeyCode::Char('5') => state.move_to(F_IDE),
+        KeyCode::Char('6') => state.move_to(F_PROJECTS),
         _ => {}
     }
 }
@@ -143,6 +157,8 @@ pub fn draw(_app: &App, state: &mut SettingsState, frame: &mut Frame, area: Rect
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(2),
+            Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
@@ -162,7 +178,9 @@ pub fn draw(_app: &App, state: &mut SettingsState, frame: &mut Frame, area: Rect
     frame.render_widget(&state.inputs[F_URL], chunks[1]);
     frame.render_widget(&state.inputs[F_TOKEN], chunks[2]);
     frame.render_widget(&state.inputs[F_BROWSER], chunks[3]);
-    frame.render_widget(&state.inputs[F_PROJECTS], chunks[4]);
+    frame.render_widget(&state.inputs[F_WORKTREE], chunks[4]);
+    frame.render_widget(&state.inputs[F_IDE], chunks[5]);
+    frame.render_widget(&state.inputs[F_PROJECTS], chunks[6]);
 }
 
 fn field_label(idx: usize) -> &'static str {
@@ -170,7 +188,9 @@ fn field_label(idx: usize) -> &'static str {
         F_URL => "[1] GitLab URL",
         F_TOKEN => "[2] Personal Access Token",
         F_BROWSER => "[3] Browser  (optional — e.g. firefox, chromium, /usr/bin/brave)",
-        F_PROJECTS => "[4] Projects  (one URL or path per line)",
+        F_WORKTREE => "[4] Worktree path  (optional — default path for checkout, e.g. ../checkout)",
+        F_IDE => "[5] IDE command  (optional — open worktree after checkout, e.g. studio, idea)",
+        F_PROJECTS => "[6] Projects  (one URL or path per line)",
         _ => "",
     }
 }

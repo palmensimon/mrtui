@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -17,8 +18,15 @@ pub enum AppEvent {
     MrsLoaded(Result<Vec<MergeRequest>, String>),
     DiffLoaded(Result<Vec<FileDiff>, String>),
     MergeDone(Result<(), String>),
+    ApproveDone(Result<(), String>),
     WorktreeCreated(Result<String, String>),
+    WorktreesLoaded(HashMap<String, String>),
+    UserLoaded(Result<String, String>),
     ConfigSaved(Config),
+    /// Git task requests the TUI to suspend so it can use the terminal.
+    GitSuspendRequest(tokio::sync::oneshot::Sender<()>),
+    /// Git task is done; the TUI can resume.
+    GitResumed,
 }
 
 pub struct App {
@@ -41,6 +49,12 @@ pub struct App {
     pub status_msg: Option<String>,
     pub show_help: bool,
     pub help_scroll: u16,
+
+    // Current user for author highlighting
+    pub current_username: Option<String>,
+
+    // branch → absolute worktree path for all active worktrees
+    pub checked_out_worktrees: HashMap<String, String>,
 
     // Infrastructure
     pub config: Arc<Config>,
@@ -71,6 +85,8 @@ impl App {
             status_msg: None,
             show_help: false,
             help_scroll: 0,
+            current_username: None,
+            checked_out_worktrees: HashMap::new(),
             config: Arc::new(config),
             client: client.map(Arc::new),
             event_tx,
@@ -139,6 +155,36 @@ impl App {
         });
     }
 
+    pub fn trigger_approve(&mut self, project_id: u64, iid: u64) {
+        let Some(client) = self.client.clone() else {
+            self.error = Some("Not connected".to_string());
+            return;
+        };
+        let tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            let result = client.approve_mr(project_id, iid).await.map_err(|e| e.to_string());
+            let _ = tx.send(AppEvent::ApproveDone(result)).await;
+        });
+    }
+
+    pub fn trigger_load_user(&mut self) {
+        let Some(client) = self.client.clone() else { return };
+        let tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            let result = client.get_current_user().await;
+            let _ = tx.send(AppEvent::UserLoaded(result)).await;
+        });
+    }
+
+    pub fn trigger_check_worktrees(&mut self) {
+        let repo_path = self.repo_path.clone();
+        let tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            let worktrees = crate::git::list_worktrees(&repo_path).await;
+            let _ = tx.send(AppEvent::WorktreesLoaded(worktrees)).await;
+        });
+    }
+
     pub fn handle_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::MrsLoaded(result) => {
@@ -146,7 +192,6 @@ impl App {
                 match result {
                     Ok(mrs) => {
                         self.mrs = mrs;
-                        // Keep selection in bounds
                         let max = self.mrs.len().saturating_sub(1);
                         if self.selected_row > max { self.selected_row = max; }
                     }
@@ -169,11 +214,34 @@ impl App {
                     Err(e) => self.error = Some(format!("Merge failed: {e}")),
                 }
             }
+            AppEvent::ApproveDone(result) => {
+                match result {
+                    Ok(()) => {
+                        self.status_msg = Some("Approved!".to_string());
+                        self.trigger_load();
+                    }
+                    Err(e) => self.error = Some(format!("Approve failed: {e}")),
+                }
+            }
             AppEvent::WorktreeCreated(result) => {
                 match result {
-                    Ok(msg) => self.status_msg = Some(msg),
+                    Ok(msg) => {
+                        self.status_msg = Some(msg);
+                        self.trigger_check_worktrees();
+                    }
                     Err(e) => self.error = Some(format!("Checkout failed: {e}")),
                 }
+            }
+            AppEvent::WorktreesLoaded(worktrees) => {
+                self.checked_out_worktrees = worktrees;
+            }
+            AppEvent::UserLoaded(result) => {
+                if let Ok(username) = result {
+                    self.current_username = Some(username);
+                }
+            }
+            AppEvent::GitSuspendRequest(_) | AppEvent::GitResumed => {
+                // Handled directly in tui/mod.rs before reaching here.
             }
             AppEvent::ConfigSaved(config) => {
                 let client = GitLabClient::new(&config.gitlab_url, &config.access_token, config.project_api_paths()).ok();
@@ -181,6 +249,7 @@ impl App {
                 self.config = Arc::new(config);
                 self.view = AppView::MrList;
                 self.trigger_load();
+                self.trigger_load_user();
             }
         }
     }

@@ -28,6 +28,17 @@ use views::{
 
 use crate::{config::Config, gitlab::GitLabClient};
 
+fn default_worktree_path(app: &App) -> String {
+    if let Some(ref p) = app.config.default_worktree_path {
+        return p.clone();
+    }
+    let project = std::path::Path::new(&app.repo_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project");
+    format!("../{project}-mrtui")
+}
+
 pub async fn run_tui(config: Config) -> anyhow::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -48,51 +59,75 @@ pub async fn run_tui(config: Config) -> anyhow::Result<()> {
     let mut settings_state = SettingsState::new(&app.config);
     let mut checkout_state: Option<CheckoutPanelState> = None;
 
+    app.trigger_check_worktrees();
     if app.view == AppView::MrList {
         app.trigger_load();
+        app.trigger_load_user();
     }
 
+    let mut suspended = false;
+
     loop {
-        terminal.draw(|frame| {
-            let full_area = frame.area();
-            let (content_area, bar_area) = help::split_with_bar(full_area);
+        if !suspended {
+            terminal.draw(|frame| {
+                let full_area = frame.area();
+                let (content_area, bar_area) = help::split_with_bar(full_area);
 
-            match &app.view {
-                AppView::MrList => mr_list::draw(&app, frame, content_area),
-                AppView::MrDetail => mr_detail::draw(&app, &mut detail_state, frame, content_area),
-                AppView::Settings => settings::draw(&app, &mut settings_state, frame, content_area),
-            }
+                match &app.view {
+                    AppView::MrList => mr_list::draw(&app, frame, content_area),
+                    AppView::MrDetail => mr_detail::draw(&app, &mut detail_state, frame, content_area),
+                    AppView::Settings => settings::draw(&app, &mut settings_state, frame, content_area),
+                }
 
-            if let Some(ref cs) = checkout_state {
-                checkout_panel::draw(&app, cs, frame, content_area);
-            }
+                if let Some(ref cs) = checkout_state {
+                    checkout_panel::draw(&app, cs, frame, content_area);
+                }
 
-            match &app.view {
-                AppView::MrList => mr_list::draw_bar(&app, frame, bar_area),
-                AppView::MrDetail => mr_detail::draw_bar(&app, &detail_state, frame, bar_area),
-                AppView::Settings => help::draw_status_bar(
-                    frame, bar_area,
-                    &[("Ctrl+S", "save"), ("?", "help")],
-                    false,
-                    if let Some(e) = &app.error { Some(e.as_str()) } else { app.status_msg.as_deref() },
-                ),
-            }
+                match &app.view {
+                    AppView::MrList => mr_list::draw_bar(&app, frame, bar_area),
+                    AppView::MrDetail => mr_detail::draw_bar(&app, &detail_state, frame, bar_area),
+                    AppView::Settings => help::draw_status_bar(
+                        frame, bar_area,
+                        &[("Ctrl+S", "save"), ("?", "help")],
+                        false,
+                        if let Some(e) = &app.error { Some(e.as_str()) } else { app.status_msg.as_deref() },
+                    ),
+                }
 
-            if app.show_help {
-                help::draw(frame, full_area, app.help_scroll);
-            }
-        })?;
+                if app.show_help {
+                    help::draw(frame, full_area, app.help_scroll);
+                }
+            })?;
+        }
 
         tokio::select! {
             Some(app_event) = event_rx.recv() => {
-                let was_settings = app.view == AppView::Settings;
-                app.handle_event(app_event);
-                if was_settings || app.view == AppView::Settings {
-                    settings_state = SettingsState::new(&app.config);
+                match app_event {
+                    AppEvent::GitSuspendRequest(ready_tx) => {
+                        // Leave TUI so the git process can use the terminal
+                        disable_raw_mode()?;
+                        execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+                        suspended = true;
+                        let _ = ready_tx.send(());
+                    }
+                    AppEvent::GitResumed => {
+                        // Restore TUI
+                        enable_raw_mode()?;
+                        execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+                        terminal.clear()?;
+                        suspended = false;
+                    }
+                    other => {
+                        let was_settings = app.view == AppView::Settings;
+                        app.handle_event(other);
+                        if was_settings || app.view == AppView::Settings {
+                            settings_state = SettingsState::new(&app.config);
+                        }
+                    }
                 }
             }
 
-            poll_result = tokio::task::spawn_blocking(|| event::poll(std::time::Duration::from_millis(50))) => {
+            poll_result = tokio::task::spawn_blocking(|| event::poll(std::time::Duration::from_millis(50))), if !suspended => {
                 if !matches!(poll_result, Ok(Ok(true))) {
                     continue;
                 }
@@ -161,7 +196,8 @@ pub async fn run_tui(config: Config) -> anyhow::Result<()> {
                                 if key.code == KeyCode::Char('c') && !app.local_search_active {
                                     if let Some(mr) = app.selected_mr().cloned() {
                                         app.current_mr = Some(mr.clone());
-                                        checkout_state = Some(CheckoutPanelState::new(&mr));
+                                        let path = default_worktree_path(&app);
+                                        checkout_state = Some(CheckoutPanelState::new(&path));
                                     }
                                 } else {
                                     mr_list::handle_key(&mut app, key);
@@ -174,8 +210,9 @@ pub async fn run_tui(config: Config) -> anyhow::Result<()> {
                             }
                             AppView::MrDetail => {
                                 if key.code == KeyCode::Char('c') {
-                                    if let Some(ref mr) = app.current_mr.clone() {
-                                        checkout_state = Some(CheckoutPanelState::new(mr));
+                                    if app.current_mr.is_some() {
+                                        let path = default_worktree_path(&app);
+                                        checkout_state = Some(CheckoutPanelState::new(&path));
                                     }
                                 } else {
                                     mr_detail::handle_key(&mut app, &mut detail_state, key);

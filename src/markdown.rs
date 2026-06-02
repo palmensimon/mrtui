@@ -2,21 +2,20 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
-/// Parse markdown text into ratatui Lines and a list of media URLs found in the text.
-pub fn render(text: &str) -> (Vec<Line<'static>>, Vec<String>) {
+/// Parse markdown text into ratatui Lines.
+pub fn render(text: &str) -> Vec<Line<'static>> {
     let mut r = Renderer::default();
     let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
     for event in Parser::new_ext(text, opts) {
         r.event(event);
     }
     r.flush_pending();
-    (r.lines, r.media_urls)
+    r.lines
 }
 
 #[derive(Default)]
 struct Renderer {
     lines: Vec<Line<'static>>,
-    media_urls: Vec<String>,
     pending: Vec<Span<'static>>,
     bold: bool,
     italic: bool,
@@ -148,14 +147,12 @@ impl Renderer {
                 let url = dest_url.to_string();
                 let kind = if is_video(&url) { "video" } else { "image" };
                 self.pending.push(Span::styled(
-                    format!("[{kind}: {url}]  →  'o' to open"),
+                    format!("[{kind}: {url}]  (open in browser to view)"),
                     Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
                 ));
-                self.media_urls.push(url);
                 self.flush();
             }
             Tag::Link { .. } => {
-                // Style the link text; URL shown by browser on 'b'
                 self.pending.push(Span::styled(
                     "",
                     Style::default().fg(Color::Blue).add_modifier(Modifier::UNDERLINED),

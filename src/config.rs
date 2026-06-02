@@ -28,6 +28,8 @@ pub struct Config {
     #[serde(default)]
     pub projects: Vec<ProjectEntry>,
     pub browser: Option<String>,
+    pub default_worktree_path: Option<String>,
+    pub ide_command: Option<String>,
 }
 
 impl Config {

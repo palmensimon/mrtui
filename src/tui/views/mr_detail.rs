@@ -13,7 +13,7 @@ use crate::{
     tui::app::{App, AppView},
 };
 
-use super::mr_list::{hints_line, label_color, right_label};
+use super::mr_list::{hints_line, label_color, open_in_editor, right_label};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DetailTab {
@@ -45,21 +45,16 @@ impl DetailTab {
 pub struct DetailState {
     pub tab: DetailTab,
     pub scroll: u16,
-    pub media_urls: Vec<String>,
-    pub media_url_idx: usize,
 }
 
 impl DetailState {
     pub fn new() -> Self {
-        Self { tab: DetailTab::Description, scroll: 0, media_urls: Vec::new(), media_url_idx: 0 }
+        Self { tab: DetailTab::Description, scroll: 0 }
     }
 
-    pub fn reset_for_mr(&mut self, mr: &MergeRequest) {
+    pub fn reset_for_mr(&mut self, _mr: &MergeRequest) {
         self.tab = DetailTab::Description;
         self.scroll = 0;
-        self.media_url_idx = 0;
-        let (_, urls) = crate::markdown::render(mr.description.as_deref().unwrap_or(""));
-        self.media_urls = urls;
     }
 }
 
@@ -101,20 +96,23 @@ pub fn handle_key(app: &mut App, state: &mut DetailState, key: KeyEvent) {
             }
             return;
         }
+        KeyCode::Char('o') => {
+            if let Some(branch) = app.current_mr.as_ref().map(|mr| mr.source_branch.clone()) {
+                open_in_editor(app, &branch);
+            }
+            return;
+        }
+        KeyCode::Char('a') => {
+            if let Some(ref mr) = app.current_mr.clone() {
+                app.trigger_approve(mr.project_id, mr.iid);
+            }
+            return;
+        }
         KeyCode::Char('b') => {
             if let Some(ref mr) = app.current_mr {
                 let url = mr.web_url.clone();
                 let browser = app.config.browser.clone();
                 open_url(url, browser);
-            }
-            return;
-        }
-        KeyCode::Char('o') => {
-            if !state.media_urls.is_empty() {
-                let url = state.media_urls[state.media_url_idx].clone();
-                let browser = app.config.browser.clone();
-                open_url(url, browser);
-                state.media_url_idx = (state.media_url_idx + 1) % state.media_urls.len();
             }
             return;
         }
@@ -301,7 +299,7 @@ fn draw_footer(mr: &MergeRequest, frame: &mut Frame, area: Rect) {
 
 fn draw_description(mr: &MergeRequest, state: &DetailState, frame: &mut Frame, area: Rect) {
     let text = mr.description.as_deref().unwrap_or("*No description.*");
-    let (lines, _) = crate::markdown::render(text);
+    let lines = crate::markdown::render(text);
     frame.render_widget(Paragraph::new(lines).scroll((state.scroll, 0)), area);
 }
 
@@ -481,10 +479,10 @@ pub fn draw_bar(app: &App, state: &DetailState, frame: &mut Frame, area: Rect) {
 
     let line = match state.tab {
         DetailTab::Description => hints_line(&[
-            ("m", "merge"), ("c", "checkout"), ("b", "browser"), ("[ ]", "switch tabs"), ("?", "help"),
+            ("o", "open"), ("m", "merge"), ("a", "approve"), ("c", "checkout"), ("b", "browser"), ("[ ]", "switch tabs"), ("?", "help"),
         ]),
         DetailTab::Diff => hints_line(&[
-            ("j/k", "scroll"), ("Ctrl+D/U", "half page"), ("Tab/⇧Tab", "next/prev file"), ("[ ]", "switch tabs"), ("?", "help"),
+            ("Ctrl+D/U", "half page"), ("Tab/⇧Tab", "next/prev file"), ("[ ]", "switch tabs"), ("?", "help"),
         ]),
     };
     frame.render_widget(Paragraph::new(line), area);
