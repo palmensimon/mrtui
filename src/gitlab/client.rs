@@ -1,6 +1,6 @@
 use reqwest::{Client, header};
 
-use super::types::{ChangesResponse, CurrentUser, FileDiff, MergeRequest, MrApprovals, User};
+use super::types::{ChangesResponse, CurrentUser, FileDiff, MergeRequest, MrApprovals, Pipeline, User};
 
 pub struct GitLabClient {
     client: Client,
@@ -155,6 +155,21 @@ impl GitLabClient {
         Ok(())
     }
 
+    pub async fn get_pipeline_status(&self, project_id: u64, iid: u64) -> Result<Option<Pipeline>, String> {
+        let url = self.project_url(project_id, &format!("merge_requests/{iid}/pipelines?per_page=1"));
+        let pipelines: Vec<Pipeline> = self.client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {e}"))?
+            .error_for_status()
+            .map_err(|e| format!("API error: {e}"))?
+            .json()
+            .await
+            .map_err(|e| format!("Parse error: {e}"))?;
+        Ok(pipelines.into_iter().next())
+    }
+
     pub async fn get_approvals(&self, project_id: u64, iid: u64) -> Result<Vec<User>, String> {
         let url = self.project_url(project_id, &format!("merge_requests/{iid}/approvals"));
         let resp: MrApprovals = self.client
@@ -170,7 +185,7 @@ impl GitLabClient {
         Ok(resp.approved_by.into_iter().map(|a| a.user).collect())
     }
 
-    pub async fn get_current_user(&self) -> Result<String, String> {
+    pub async fn get_current_user(&self) -> Result<CurrentUser, String> {
         let url = format!("{}/api/v4/user", self.base_url);
         let user: CurrentUser = self.client
             .get(&url)
@@ -182,6 +197,6 @@ impl GitLabClient {
             .json()
             .await
             .map_err(|e| format!("Parse error: {e}"))?;
-        Ok(user.username)
+        Ok(user)
     }
 }

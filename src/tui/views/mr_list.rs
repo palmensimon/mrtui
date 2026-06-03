@@ -10,7 +10,7 @@ use ratatui::{
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    gitlab::{MergeRequest, User},
+    gitlab::{MergeRequest, Pipeline, User},
     tui::app::{App, AppView},
 };
 
@@ -163,10 +163,15 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
     ]);
 
     let visible = app.visible_mrs();
-    let current_username = app.current_username.as_deref();
+    let my_username = app.config.my_username.as_deref()
+        .or(app.current_username.as_deref());
     let checked_out = &app.checked_out_worktrees;
     let approvals = &app.approvals;
-    let rows: Vec<Row> = visible.iter().map(|mr| build_row(mr, current_username, checked_out, approvals)).collect();
+    let pipelines = &app.pipelines;
+    let rows: Vec<Row> = visible.iter().map(|mr| {
+        let pipeline = pipelines.get(&(mr.project_id, mr.iid));
+        build_row(mr, my_username, checked_out, approvals, pipeline)
+    }).collect();
 
     let widths = [
         Constraint::Min(36),
@@ -188,11 +193,13 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
-fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_out: &HashMap<String, String>, approvals: &HashMap<(u64, u64), Vec<User>>) -> Row<'a> {
-    let is_mine = current_username.map(|u| u == mr.author.username.as_str()).unwrap_or(false);
+fn build_row<'a>(mr: &'a MergeRequest, my_username: Option<&str>, checked_out: &HashMap<String, String>, approvals: &HashMap<(u64, u64), Vec<User>>, pipeline: Option<&Pipeline>) -> Row<'a> {
+    let is_mine = my_username
+        .map(|u| u.eq_ignore_ascii_case(&mr.author.username))
+        .unwrap_or(false);
     let is_checked_out = checked_out.contains_key(&mr.source_branch);
 
-    let title_style = if mr.draft || is_mine {
+    let title_style = if mr.draft {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default().fg(Color::White)
@@ -210,7 +217,8 @@ fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_o
 
     let labels_cell = Cell::from(labels_line(&mr.labels, 2));
     let milestone_str = mr.milestone.as_ref().map(|m| m.title.clone()).unwrap_or_default();
-    let status_color = status_color(mr);
+    let (status_text, status_color) = pipeline_status(pipeline)
+        .unwrap_or_else(|| (mr.status_label(), status_color(mr)));
 
     let is_approved = approvals
         .get(&(mr.project_id, mr.iid))
@@ -224,10 +232,10 @@ fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_o
 
     Row::new(vec![
         title_cell,
-        Cell::from(mr.author.username.clone()).style(Style::default().fg(Color::DarkGray)),
+        Cell::from(mr.author.username.clone()).style(Style::default().fg(if is_mine { Color::Gray } else { Color::DarkGray })),
         labels_cell,
         Cell::from(milestone_str).style(Style::default().fg(Color::White)),
-        Cell::from(mr.status_label()).style(Style::default().fg(status_color)),
+        Cell::from(status_text).style(Style::default().fg(status_color)),
         approved_cell,
     ])
 }
@@ -235,11 +243,20 @@ fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_o
 fn status_color(mr: &MergeRequest) -> Color {
     if mr.draft { return Color::DarkGray; }
     match mr.detailed_merge_status.as_str() {
-        "mergeable" => Color::Green,
-        "not_approved" => Color::Yellow,
-        "blocked_status" | "merge_request_blocked" | "discussions_not_resolved" => Color::Red,
-        "ci_still_running" => Color::Yellow,
-        _ => Color::White,
+        "mergeable"                 => Color::Green,
+        "discussions_not_resolved"  => Color::Yellow,
+        _                           => Color::Gray,
+    }
+}
+
+/// Returns `Some((label, color))` when the pipeline status should override the merge status display.
+fn pipeline_status(pipeline: Option<&Pipeline>) -> Option<(&'static str, Color)> {
+    let p = pipeline?;
+    match p.status.as_str() {
+        "failed"                                                      => Some(("Build Failed",  Color::Red)),
+        "running"                                                     => Some(("Build Running", Color::LightBlue)),
+        "pending" | "created" | "waiting_for_resource" | "preparing" => Some(("Build Pending", Color::Yellow)),
+        _ => None,
     }
 }
 

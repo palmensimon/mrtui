@@ -25,6 +25,7 @@ pub struct Config {
     pub gitlab_url: String,
     #[serde(default)]
     pub access_token: String,
+    pub my_username: Option<String>,
     #[serde(default)]
     pub projects: Vec<ProjectEntry>,
     pub browser: Option<String>,

@@ -15,11 +15,12 @@ use crate::{
 
 const F_URL: usize = 0;
 const F_TOKEN: usize = 1;
-const F_BROWSER: usize = 2;
-const F_WORKTREE: usize = 3;
-const F_IDE: usize = 4;
-const F_PROJECTS: usize = 5;
-const FIELD_COUNT: usize = 6;
+const F_MY_USERNAME: usize = 2;
+const F_BROWSER: usize = 3;
+const F_WORKTREE: usize = 4;
+const F_IDE: usize = 5;
+const F_PROJECTS: usize = 6;
+const FIELD_COUNT: usize = 7;
 
 pub struct SettingsState {
     inputs: [TextArea<'static>; FIELD_COUNT],
@@ -32,6 +33,7 @@ impl SettingsState {
         let mut inputs = std::array::from_fn(|_| TextArea::default());
         inputs[F_URL] = single_line_area(&config.gitlab_url);
         inputs[F_TOKEN] = single_line_area(&config.access_token);
+        inputs[F_MY_USERNAME] = single_line_area(config.my_username.as_deref().unwrap_or(""));
         inputs[F_BROWSER] = single_line_area(config.browser.as_deref().unwrap_or(""));
         inputs[F_WORKTREE] = single_line_area(config.default_worktree_path.as_deref().unwrap_or(""));
         inputs[F_IDE] = single_line_area(config.ide_command.as_deref().unwrap_or(""));
@@ -50,6 +52,7 @@ impl SettingsState {
             update_field_block(input, field_label(i), focused, editing, multiline);
         }
     }
+
 
     fn move_to(&mut self, idx: usize) {
         self.editing = false;
@@ -83,6 +86,10 @@ impl SettingsState {
             let s = self.first_line(F_IDE);
             if s.is_empty() { None } else { Some(s) }
         };
+        let my_username = {
+            let s = self.first_line(F_MY_USERNAME);
+            if s.is_empty() { None } else { Some(s) }
+        };
         let projects = parse_projects_text(&self.projects_text());
 
         if gitlab_url.is_empty() {
@@ -91,7 +98,7 @@ impl SettingsState {
         if access_token.is_empty() {
             return Err("Access token is required".to_string());
         }
-        Ok(Config { gitlab_url, access_token, projects, browser, default_worktree_path, ide_command })
+        Ok(Config { gitlab_url, access_token, my_username, projects, browser, default_worktree_path, ide_command })
     }
 }
 
@@ -144,10 +151,11 @@ pub fn handle_key(app: &mut App, state: &mut SettingsState, key: KeyEvent) {
         KeyCode::BackTab | KeyCode::Up => state.move_prev(),
         KeyCode::Char('1') => state.move_to(F_URL),
         KeyCode::Char('2') => state.move_to(F_TOKEN),
-        KeyCode::Char('3') => state.move_to(F_BROWSER),
-        KeyCode::Char('4') => state.move_to(F_WORKTREE),
-        KeyCode::Char('5') => state.move_to(F_IDE),
-        KeyCode::Char('6') => state.move_to(F_PROJECTS),
+        KeyCode::Char('3') => state.move_to(F_MY_USERNAME),
+        KeyCode::Char('4') => state.move_to(F_BROWSER),
+        KeyCode::Char('5') => state.move_to(F_WORKTREE),
+        KeyCode::Char('6') => state.move_to(F_IDE),
+        KeyCode::Char('7') => state.move_to(F_PROJECTS),
         _ => {}
     }
 }
@@ -157,6 +165,7 @@ pub fn draw(_app: &App, state: &mut SettingsState, frame: &mut Frame, area: Rect
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(2),
+            Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
@@ -177,21 +186,23 @@ pub fn draw(_app: &App, state: &mut SettingsState, frame: &mut Frame, area: Rect
 
     frame.render_widget(&state.inputs[F_URL], chunks[1]);
     frame.render_widget(&state.inputs[F_TOKEN], chunks[2]);
-    frame.render_widget(&state.inputs[F_BROWSER], chunks[3]);
-    frame.render_widget(&state.inputs[F_WORKTREE], chunks[4]);
-    frame.render_widget(&state.inputs[F_IDE], chunks[5]);
-    frame.render_widget(&state.inputs[F_PROJECTS], chunks[6]);
+    frame.render_widget(&state.inputs[F_MY_USERNAME], chunks[3]);
+    frame.render_widget(&state.inputs[F_BROWSER], chunks[4]);
+    frame.render_widget(&state.inputs[F_WORKTREE], chunks[5]);
+    frame.render_widget(&state.inputs[F_IDE], chunks[6]);
+    frame.render_widget(&state.inputs[F_PROJECTS], chunks[7]);
 }
 
 fn field_label(idx: usize) -> &'static str {
     match idx {
-        F_URL => "[1] GitLab URL",
-        F_TOKEN => "[2] Personal Access Token",
-        F_BROWSER => "[3] Browser  (optional — e.g. firefox, chromium, /usr/bin/brave)",
-        F_WORKTREE => "[4] Worktree path  (optional — default path for checkout, e.g. ../checkout)",
-        F_IDE => "[5] IDE command  (optional — open worktree after checkout, e.g. studio, idea)",
-        F_PROJECTS => "[6] Projects  (one URL or path per line)",
-        _ => "",
+        F_URL         => "[1] GitLab URL",
+        F_TOKEN       => "[2] Personal Access Token",
+        F_MY_USERNAME => "[3] My GitLab username  (used to highlight your own MRs)",
+        F_BROWSER     => "[4] Browser  (optional — e.g. firefox, chromium, /usr/bin/brave)",
+        F_WORKTREE    => "[5] Worktree path  (optional — default path for checkout, e.g. ../checkout)",
+        F_IDE         => "[6] IDE command  (optional — open worktree after checkout, e.g. studio, idea)",
+        F_PROJECTS    => "[7] Projects  (one URL or path per line)",
+        _             => "",
     }
 }
 

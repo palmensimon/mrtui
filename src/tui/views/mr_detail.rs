@@ -8,7 +8,7 @@ use ratatui::{
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    gitlab::{FileDiff, MergeRequest, User},
+    gitlab::{FileDiff, MergeRequest, Pipeline, User},
     gitlab::types::diff_stats,
     tui::app::{App, AppView},
 };
@@ -163,8 +163,9 @@ pub fn draw(app: &App, state: &mut DetailState, frame: &mut Frame, area: Rect) {
         .get(&(mr.project_id, mr.iid))
         .map(|v| v.as_slice())
         .unwrap_or(&[]);
+    let pipeline = app.pipelines.get(&(mr.project_id, mr.iid));
     draw_title(mr, frame, chunks[0]);
-    draw_info(mr, approvers, frame, chunks[1]);
+    draw_info(mr, approvers, pipeline, frame, chunks[1]);
     draw_tab_bar(app, state, frame, chunks[2]);
 
     match state.tab {
@@ -209,7 +210,7 @@ fn draw_title(mr: &MergeRequest, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
 }
 
-fn draw_info(mr: &MergeRequest, approvers: &[User], frame: &mut Frame, area: Rect) {
+fn draw_info(mr: &MergeRequest, approvers: &[User], pipeline: Option<&Pipeline>, frame: &mut Frame, area: Rect) {
     let block = section_block();
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -220,7 +221,13 @@ fn draw_info(mr: &MergeRequest, approvers: &[User], frame: &mut Frame, area: Rec
         .split(inner);
 
     // Row 1: Author  Status  Pipeline  Labels  Milestone
-    let merge_color = if mr.is_mergeable() { Color::Green } else { Color::Yellow };
+    let merge_color = match mr.detailed_merge_status.as_str() {
+        "mergeable"                => Color::Green,
+        "discussions_not_resolved" => Color::Yellow,
+        _                          => Color::Gray,
+    };
+    let (status_text, status_color) = pipeline_status_override(pipeline)
+        .unwrap_or_else(|| (mr.status_label().to_string(), merge_color));
     let mut top = vec![
         Span::styled("  Author ", Style::default().fg(Color::DarkGray)),
         Span::styled(format!("@{}", mr.author.username), Style::default().fg(Color::Cyan)),
@@ -234,7 +241,7 @@ fn draw_info(mr: &MergeRequest, approvers: &[User], frame: &mut Frame, area: Rec
     }
     top.extend([
         Span::styled("   Status ", Style::default().fg(Color::DarkGray)),
-        Span::styled(mr.status_label().to_string(), Style::default().fg(merge_color)),
+        Span::styled(status_text, Style::default().fg(status_color)),
     ]);
     if !approvers.is_empty() {
         top.push(Span::styled("   Approved by ", Style::default().fg(Color::DarkGray)));
@@ -452,6 +459,16 @@ fn file_line_offsets(diff: &[FileDiff]) -> Vec<u16> {
         line += 1; // blank separator
     }
     offsets
+}
+
+fn pipeline_status_override(pipeline: Option<&Pipeline>) -> Option<(String, Color)> {
+    let p = pipeline?;
+    match p.status.as_str() {
+        "failed"                                                      => Some(("Build Failed".into(),  Color::Red)),
+        "running"                                                     => Some(("Build Running".into(), Color::LightBlue)),
+        "pending" | "created" | "waiting_for_resource" | "preparing" => Some(("Build Pending".into(), Color::Yellow)),
+        _ => None,
+    }
 }
 
 /// Which file index the current scroll position is within.

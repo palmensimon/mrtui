@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct CurrentUser {
+    pub id: u64,
     pub username: String,
 }
 
@@ -19,6 +20,11 @@ pub struct References {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Milestone {
     pub title: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Pipeline {
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
