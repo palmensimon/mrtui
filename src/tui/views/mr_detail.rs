@@ -8,7 +8,7 @@ use ratatui::{
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::{
-    gitlab::{FileDiff, MergeRequest},
+    gitlab::{FileDiff, MergeRequest, User},
     gitlab::types::diff_stats,
     tui::app::{App, AppView},
 };
@@ -159,8 +159,12 @@ pub fn draw(app: &App, state: &mut DetailState, frame: &mut Frame, area: Rect) {
         ])
         .split(area);
 
+    let approvers = app.approvals
+        .get(&(mr.project_id, mr.iid))
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
     draw_title(mr, frame, chunks[0]);
-    draw_info(mr, frame, chunks[1]);
+    draw_info(mr, approvers, frame, chunks[1]);
     draw_tab_bar(app, state, frame, chunks[2]);
 
     match state.tab {
@@ -205,7 +209,7 @@ fn draw_title(mr: &MergeRequest, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
 }
 
-fn draw_info(mr: &MergeRequest, frame: &mut Frame, area: Rect) {
+fn draw_info(mr: &MergeRequest, approvers: &[User], frame: &mut Frame, area: Rect) {
     let block = section_block();
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -232,6 +236,14 @@ fn draw_info(mr: &MergeRequest, frame: &mut Frame, area: Rect) {
         Span::styled("   Status ", Style::default().fg(Color::DarkGray)),
         Span::styled(mr.status_label().to_string(), Style::default().fg(merge_color)),
     ]);
+    if !approvers.is_empty() {
+        top.push(Span::styled("   Approved by ", Style::default().fg(Color::DarkGray)));
+        let names = approvers.iter()
+            .map(|u| format!("@{}", u.username))
+            .collect::<Vec<_>>()
+            .join(", ");
+        top.push(Span::styled(names, Style::default().fg(Color::Green)));
+    }
     if !mr.labels.is_empty() {
         top.push(Span::styled("   Labels ", Style::default().fg(Color::DarkGray)));
         for (i, label) in mr.labels.iter().enumerate() {

@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     config::Config,
-    gitlab::{FileDiff, GitLabClient, MergeRequest},
+    gitlab::{FileDiff, GitLabClient, MergeRequest, User},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -19,6 +19,7 @@ pub enum AppEvent {
     DiffLoaded(Result<Vec<FileDiff>, String>),
     MergeDone(Result<(), String>),
     ApproveDone(Result<(), String>),
+    ApprovalsLoaded(HashMap<(u64, u64), Vec<User>>),
     WorktreeCreated(Result<String, String>),
     WorktreesLoaded(HashMap<String, String>),
     UserLoaded(Result<String, String>),
@@ -53,6 +54,9 @@ pub struct App {
     // Current user for author highlighting
     pub current_username: Option<String>,
 
+    // Approvals keyed by (project_id, iid)
+    pub approvals: HashMap<(u64, u64), Vec<User>>,
+
     // branch → absolute worktree path for all active worktrees
     pub checked_out_worktrees: HashMap<String, String>,
 
@@ -86,6 +90,7 @@ impl App {
             show_help: false,
             help_scroll: 0,
             current_username: None,
+            approvals: HashMap::new(),
             checked_out_worktrees: HashMap::new(),
             config: Arc::new(config),
             client: client.map(Arc::new),
@@ -167,6 +172,28 @@ impl App {
         });
     }
 
+    pub fn trigger_load_approvals(&mut self) {
+        let Some(client) = self.client.clone() else { return };
+        let mrs: Vec<(u64, u64)> = self.mrs.iter().map(|mr| (mr.project_id, mr.iid)).collect();
+        if mrs.is_empty() { return; }
+        let tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            let mut set = tokio::task::JoinSet::new();
+            for (pid, iid) in mrs {
+                let client = client.clone();
+                set.spawn(async move {
+                    let approvers = client.get_approvals(pid, iid).await.unwrap_or_default();
+                    ((pid, iid), approvers)
+                });
+            }
+            let mut results = HashMap::new();
+            while let Some(Ok(((pid, iid), approvers))) = set.join_next().await {
+                results.insert((pid, iid), approvers);
+            }
+            let _ = tx.send(AppEvent::ApprovalsLoaded(results)).await;
+        });
+    }
+
     pub fn trigger_load_user(&mut self) {
         let Some(client) = self.client.clone() else { return };
         let tx = self.event_tx.clone();
@@ -194,6 +221,7 @@ impl App {
                         self.mrs = mrs;
                         let max = self.mrs.len().saturating_sub(1);
                         if self.selected_row > max { self.selected_row = max; }
+                        self.trigger_load_approvals();
                     }
                     Err(e) => self.error = Some(e),
                 }
@@ -222,6 +250,9 @@ impl App {
                     }
                     Err(e) => self.error = Some(format!("Approve failed: {e}")),
                 }
+            }
+            AppEvent::ApprovalsLoaded(approvals) => {
+                self.approvals = approvals;
             }
             AppEvent::WorktreeCreated(result) => {
                 match result {

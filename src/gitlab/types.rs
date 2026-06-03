@@ -86,6 +86,17 @@ pub struct FileDiff {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ApprovalEntry {
+    pub user: User,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MrApprovals {
+    #[serde(default)]
+    pub approved_by: Vec<ApprovalEntry>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ChangesResponse {
     pub changes: Vec<FileDiff>,
 }

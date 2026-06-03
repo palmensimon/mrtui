@@ -10,7 +10,7 @@ use ratatui::{
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
-    gitlab::MergeRequest,
+    gitlab::{MergeRequest, User},
     tui::app::{App, AppView},
 };
 
@@ -159,12 +159,14 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
         Cell::from("LABELS").style(header_style),
         Cell::from("MILESTONE").style(header_style),
         Cell::from("STATUS").style(header_style),
+        Cell::from("APPROVED").style(header_style),
     ]);
 
     let visible = app.visible_mrs();
     let current_username = app.current_username.as_deref();
     let checked_out = &app.checked_out_worktrees;
-    let rows: Vec<Row> = visible.iter().map(|mr| build_row(mr, current_username, checked_out)).collect();
+    let approvals = &app.approvals;
+    let rows: Vec<Row> = visible.iter().map(|mr| build_row(mr, current_username, checked_out, approvals)).collect();
 
     let widths = [
         Constraint::Min(36),
@@ -172,6 +174,7 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
         Constraint::Length(22),
         Constraint::Length(16),
         Constraint::Length(16),
+        Constraint::Length(10),
     ];
 
     let table = Table::new(rows, widths)
@@ -185,7 +188,7 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
-fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_out: &HashMap<String, String>) -> Row<'a> {
+fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_out: &HashMap<String, String>, approvals: &HashMap<(u64, u64), Vec<User>>) -> Row<'a> {
     let is_mine = current_username.map(|u| u == mr.author.username.as_str()).unwrap_or(false);
     let is_checked_out = checked_out.contains_key(&mr.source_branch);
 
@@ -209,12 +212,23 @@ fn build_row<'a>(mr: &'a MergeRequest, current_username: Option<&str>, checked_o
     let milestone_str = mr.milestone.as_ref().map(|m| m.title.clone()).unwrap_or_default();
     let status_color = status_color(mr);
 
+    let is_approved = approvals
+        .get(&(mr.project_id, mr.iid))
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let approved_cell = if is_approved {
+        Cell::from("✓").style(Style::default().fg(Color::Green))
+    } else {
+        Cell::from("")
+    };
+
     Row::new(vec![
         title_cell,
         Cell::from(mr.author.username.clone()).style(Style::default().fg(Color::DarkGray)),
         labels_cell,
         Cell::from(milestone_str).style(Style::default().fg(Color::White)),
         Cell::from(mr.status_label()).style(Style::default().fg(status_color)),
+        approved_cell,
     ])
 }
 
