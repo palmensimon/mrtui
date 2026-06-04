@@ -10,6 +10,7 @@ use ratatui::{
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
+    git::WorktreeEntry,
     gitlab::{MergeRequest, Pipeline, User},
     tui::app::{App, AppView},
 };
@@ -74,13 +75,14 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 
 pub fn open_in_editor(app: &mut App, branch: &str) {
     let Some(cmd) = app.config.ide_command.clone() else {
-        app.error = Some("No editor configured — set IDE command in Settings [5]".to_string());
+        app.error = Some("No editor configured — set IDE command in Settings [6]".to_string());
         return;
     };
-    let Some(path) = app.checked_out_worktrees.get(branch).cloned() else {
+    let Some(entry) = app.checked_out_worktrees.get(branch) else {
         app.error = Some("MR is not checked out".to_string());
         return;
     };
+    let path = entry.path.clone();
     tokio::spawn(async move {
         std::process::Command::new(&cmd).arg(&path).spawn().ok();
     });
@@ -197,24 +199,29 @@ fn draw_table(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_stateful_widget(table, area, &mut state);
 }
 
-fn build_row<'a>(mr: &'a MergeRequest, my_username: Option<&str>, checked_out: &HashMap<String, String>, approvals: &HashMap<(u64, u64), Vec<User>>, pipeline: Option<&Pipeline>) -> Row<'a> {
+fn build_row<'a>(mr: &'a MergeRequest, my_username: Option<&str>, checked_out: &HashMap<String, WorktreeEntry>, approvals: &HashMap<(u64, u64), Vec<User>>, pipeline: Option<&Pipeline>) -> Row<'a> {
     let is_mine = my_username
         .map(|u| u.eq_ignore_ascii_case(&mr.author.username))
         .unwrap_or(false);
-    let is_checked_out = checked_out.contains_key(&mr.source_branch);
+    let checkout_entry = checked_out.get(&mr.source_branch);
 
-    let title_style = if mr.draft {
-        Style::default().fg(Color::DarkGray)
-    } else {
-        Style::default().fg(Color::White)
-    };
-
-    let title_line = if is_checked_out {
+    let title_line = if let Some(entry) = checkout_entry {
+        let badge = if entry.is_main { "[M] " } else { "[R] " };
+        let checked_style = if mr.draft {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+        };
         Line::from(vec![
-            Span::styled("⊙ ", Style::default().fg(Color::Cyan)),
-            Span::styled(mr.title.clone(), title_style),
+            Span::styled("● ", Style::default().fg(Color::Green)),
+            Span::styled(format!("{badge}{}", mr.title), checked_style),
         ])
     } else {
+        let title_style = if mr.draft {
+            Style::default().fg(Color::DarkGray)
+        } else {
+            Style::default().fg(Color::White)
+        };
         Line::from(Span::styled(mr.title.clone(), title_style))
     };
     let title_cell = Cell::from(title_line);

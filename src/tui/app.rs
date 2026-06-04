@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     config::Config,
+    git::WorktreeEntry,
     gitlab::{FileDiff, GitLabClient, MergeRequest, Pipeline, User},
     gitlab::types::CurrentUser,
 };
@@ -23,7 +24,7 @@ pub enum AppEvent {
     ApprovalsLoaded(HashMap<(u64, u64), Vec<User>>),
     PipelinesLoaded(HashMap<(u64, u64), Pipeline>),
     WorktreeCreated(Result<String, String>),
-    WorktreesLoaded(HashMap<String, String>),
+    WorktreesLoaded(HashMap<String, WorktreeEntry>),
     UserLoaded(Result<CurrentUser, String>),
     ConfigSaved(Config),
     /// Git task requests the TUI to suspend so it can use the terminal.
@@ -62,8 +63,8 @@ pub struct App {
     // Most recent pipeline per MR keyed by (project_id, iid)
     pub pipelines: HashMap<(u64, u64), Pipeline>,
 
-    // branch → absolute worktree path for all active worktrees
-    pub checked_out_worktrees: HashMap<String, String>,
+    // branch → worktree entry (path + whether it's the main worktree)
+    pub checked_out_worktrees: HashMap<String, WorktreeEntry>,
 
     // Infrastructure
     pub config: Arc<Config>,

@@ -199,7 +199,7 @@ fn field_label(idx: usize) -> &'static str {
         F_TOKEN       => "[2] Personal Access Token",
         F_MY_USERNAME => "[3] My GitLab username  (used to highlight your own MRs)",
         F_BROWSER     => "[4] Browser  (optional — e.g. firefox, chromium, /usr/bin/brave)",
-        F_WORKTREE    => "[5] Worktree path  (optional — default path for checkout, e.g. ../checkout)",
+        F_WORKTREE    => "[5] Review worktree path  (optional — default path for review checkout, e.g. ../checkout)",
         F_IDE         => "[6] IDE command  (optional — open worktree after checkout, e.g. studio, idea)",
         F_PROJECTS    => "[7] Projects  (one URL or path per line)",
         _             => "",

@@ -25,7 +25,7 @@ pub fn draw(frame: &mut Frame, area: Rect, scroll: u16) {
             &[
                 ("Enter", "Open detail"),
                 ("/", "Quick search"),
-                ("c", "Checkout as git worktree"),
+                ("c", "Checkout for review"),
                 ("r", "Refresh"),
                 ("s", "Settings"),
             ],
@@ -35,7 +35,7 @@ pub fn draw(frame: &mut Frame, area: Rect, scroll: u16) {
             &[
                 ("[ ]", "Switch tabs"),
                 ("m", "Merge MR (when mergeable)"),
-                ("c", "Checkout as git worktree"),
+                ("c", "Checkout for review"),
                 ("b", "Open MR in browser"),
                 ("o", "Open image/video URL in browser"),
                 ("Esc / ⌫", "Back to list"),
@@ -45,7 +45,8 @@ pub fn draw(frame: &mut Frame, area: Rect, scroll: u16) {
         (
             "Checkout Panel",
             &[
-                ("Enter", "Create worktree at path"),
+                ("Tab", "Switch between review worktree / current location"),
+                ("Enter", "Confirm checkout"),
                 ("Esc", "Cancel"),
             ],
         ),

@@ -2,6 +2,11 @@ use std::collections::HashMap;
 use std::process::Command;
 use tokio::process::Command as AsyncCommand;
 
+pub struct WorktreeEntry {
+    pub path: String,
+    pub is_main: bool,
+}
+
 /// Create or reuse a worktree. Blocking — must be called from spawn_blocking.
 /// stdin/stdout/stderr are inherited so SSH passphrase prompts reach the user.
 pub fn add_worktree(repo_path: &str, worktree_path: &str, branch: &str) -> Result<String, String> {
@@ -62,9 +67,10 @@ pub fn checkout_branch(repo_path: &str, branch: &str) -> Result<String, String> 
     }
 }
 
-/// Return a map of branch → absolute worktree path for all active worktrees.
+/// Return a map of branch → WorktreeEntry for all active worktrees.
+/// The first worktree listed by git is always the main worktree (is_main = true).
 /// Async, read-only — no passphrase needed.
-pub async fn list_worktrees(repo_path: &str) -> HashMap<String, String> {
+pub async fn list_worktrees(repo_path: &str) -> HashMap<String, WorktreeEntry> {
     let Ok(output) = AsyncCommand::new("git")
         .args(["-C", repo_path, "worktree", "list", "--porcelain"])
         .output()
@@ -80,13 +86,17 @@ pub async fn list_worktrees(repo_path: &str) -> HashMap<String, String> {
     let text = String::from_utf8_lossy(&output.stdout);
     let mut map = HashMap::new();
     let mut current_path: Option<String> = None;
+    let mut is_first = true;
+    let mut current_is_main = true;
 
     for line in text.lines() {
         if let Some(path) = line.strip_prefix("worktree ") {
+            current_is_main = is_first;
+            is_first = false;
             current_path = Some(path.to_string());
         } else if let Some(branch) = line.strip_prefix("branch refs/heads/") {
             if let Some(path) = current_path.take() {
-                map.insert(branch.to_string(), path);
+                map.insert(branch.to_string(), WorktreeEntry { path, is_main: current_is_main });
             }
         }
     }

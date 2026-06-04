@@ -55,11 +55,11 @@ impl CheckoutPanelState {
 fn update_input_style(input: &mut TextArea<'static>, mode: CheckoutMode) {
     let (title, color) = match mode {
         CheckoutMode::Worktree => (
-            " Worktree path — Enter to confirm, Esc to cancel ",
+            " Review worktree path — Enter to confirm, Esc to cancel ",
             Color::Cyan,
         ),
         CheckoutMode::Local => (
-            " Checkout in current repo — Enter to confirm, Esc to cancel ",
+            " Checkout in current location — Enter to confirm, Esc to cancel ",
             Color::Yellow,
         ),
     };
@@ -156,13 +156,13 @@ pub fn draw(app: &App, state: &CheckoutPanelState, frame: &mut Frame, area: Rect
             let branch = app.current_mr.as_ref().map(|mr| mr.source_branch.as_str()).unwrap_or("");
             frame.render_widget(
                 Paragraph::new(Line::from(Span::styled(
-                    format!("  Checkout branch '{branch}' in current repo"),
+                    format!("  Checkout branch '{branch}' in current location"),
                     Style::default().fg(Color::White),
                 )))
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .title(" Checkout in current repo — Enter to confirm, Esc to cancel ")
+                        .title(" Checkout in current location — Enter to confirm, Esc to cancel ")
                         .border_style(Style::default().fg(Color::Yellow)),
                 ),
                 chunks[0],
@@ -180,8 +180,8 @@ pub fn draw(app: &App, state: &CheckoutPanelState, frame: &mut Frame, area: Rect
     frame.render_widget(Paragraph::new(info), chunks[1]);
 
     let mode_label = match state.mode {
-        CheckoutMode::Worktree => "[Tab] switch to: Local checkout",
-        CheckoutMode::Local => "[Tab] switch to: Worktree",
+        CheckoutMode::Worktree => "[Tab] switch to: Checkout in current location",
+        CheckoutMode::Local => "[Tab] switch to: Checkout in review worktree",
     };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
