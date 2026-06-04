@@ -49,11 +49,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
                 let url = mr.web_url.clone();
                 let browser = app.config.browser.clone();
                 tokio::spawn(async move {
-                    if let Some(cmd) = browser {
-                        std::process::Command::new(&cmd).arg(&url).spawn().ok();
-                    } else {
-                        open::that(url).ok();
-                    }
+                    let opener = browser.unwrap_or_else(|| {
+                        if cfg!(target_os = "macos") { "open".to_string() } else { "xdg-open".to_string() }
+                    });
+                    std::process::Command::new(&opener)
+                        .arg(&url)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn()
+                        .ok();
                 });
             }
         }

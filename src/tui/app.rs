@@ -70,6 +70,12 @@ pub struct App {
     pub client: Option<Arc<GitLabClient>>,
     pub event_tx: mpsc::Sender<AppEvent>,
     pub repo_path: String,
+
+    // Pending refresh state — all three must arrive before we swap the live data in.
+    // This prevents the status column from flickering between partial states.
+    pending_mrs: Option<Vec<MergeRequest>>,
+    pending_pipelines: Option<HashMap<(u64, u64), Pipeline>>,
+    pending_approvals: Option<HashMap<(u64, u64), Vec<User>>>,
 }
 
 impl App {
@@ -103,6 +109,9 @@ impl App {
             client: client.map(Arc::new),
             event_tx,
             repo_path,
+            pending_mrs: None,
+            pending_pipelines: None,
+            pending_approvals: None,
         }
     }
 
@@ -179,14 +188,13 @@ impl App {
         });
     }
 
-    pub fn trigger_load_pipelines(&mut self) {
+    fn trigger_load_pipelines_for(&mut self, keys: Vec<(u64, u64)>) {
         let Some(client) = self.client.clone() else { return };
-        let mrs: Vec<(u64, u64)> = self.mrs.iter().map(|mr| (mr.project_id, mr.iid)).collect();
-        if mrs.is_empty() { return; }
+        if keys.is_empty() { return; }
         let tx = self.event_tx.clone();
         tokio::spawn(async move {
             let mut set = tokio::task::JoinSet::new();
-            for (pid, iid) in mrs {
+            for (pid, iid) in keys {
                 let client = client.clone();
                 set.spawn(async move {
                     let pipeline = client.get_pipeline_status(pid, iid).await.unwrap_or(None);
@@ -201,14 +209,13 @@ impl App {
         });
     }
 
-    pub fn trigger_load_approvals(&mut self) {
+    fn trigger_load_approvals_for(&mut self, keys: Vec<(u64, u64)>) {
         let Some(client) = self.client.clone() else { return };
-        let mrs: Vec<(u64, u64)> = self.mrs.iter().map(|mr| (mr.project_id, mr.iid)).collect();
-        if mrs.is_empty() { return; }
+        if keys.is_empty() { return; }
         let tx = self.event_tx.clone();
         tokio::spawn(async move {
             let mut set = tokio::task::JoinSet::new();
-            for (pid, iid) in mrs {
+            for (pid, iid) in keys {
                 let client = client.clone();
                 set.spawn(async move {
                     let approvers = client.get_approvals(pid, iid).await.unwrap_or_default();
@@ -221,6 +228,33 @@ impl App {
             }
             let _ = tx.send(AppEvent::ApprovalsLoaded(results)).await;
         });
+    }
+
+    /// Atomically apply pending MR/pipeline/approval data once all three have arrived.
+    /// Pipeline data is merged (not replaced) so existing "failed" indicators survive
+    /// transient fetch errors for individual MRs.
+    fn try_apply_pending(&mut self) {
+        if self.pending_mrs.is_none() || self.pending_pipelines.is_none() || self.pending_approvals.is_none() {
+            return;
+        }
+        let new_mrs = self.pending_mrs.take().unwrap();
+        let new_pipelines = self.pending_pipelines.take().unwrap();
+        let new_approvals = self.pending_approvals.take().unwrap();
+
+        // Merge new pipeline results into existing map so that an MR whose pipeline
+        // fetch returned None (transient error) keeps its previous entry.
+        for (key, val) in new_pipelines {
+            self.pipelines.insert(key, val);
+        }
+        let current_keys: std::collections::HashSet<_> =
+            new_mrs.iter().map(|m| (m.project_id, m.iid)).collect();
+        self.pipelines.retain(|k, _| current_keys.contains(k));
+
+        self.approvals = new_approvals;
+        let max = new_mrs.len().saturating_sub(1);
+        if self.selected_row > max { self.selected_row = max; }
+        self.mrs = new_mrs;
+        self.loading = false;
     }
 
     pub fn trigger_load_user(&mut self) {
@@ -244,16 +278,27 @@ impl App {
     pub fn handle_event(&mut self, event: AppEvent) {
         match event {
             AppEvent::MrsLoaded(result) => {
-                self.loading = false;
                 match result {
                     Ok(mrs) => {
-                        self.mrs = mrs;
-                        let max = self.mrs.len().saturating_sub(1);
-                        if self.selected_row > max { self.selected_row = max; }
-                        self.trigger_load_approvals();
-                        self.trigger_load_pipelines();
+                        let keys: Vec<(u64, u64)> = mrs.iter().map(|m| (m.project_id, m.iid)).collect();
+                        // Reset pending state for this refresh cycle.
+                        self.pending_mrs = Some(mrs);
+                        self.pending_pipelines = None;
+                        self.pending_approvals = None;
+                        if keys.is_empty() {
+                            // No secondary fetches needed; apply immediately.
+                            self.pending_pipelines = Some(HashMap::new());
+                            self.pending_approvals = Some(HashMap::new());
+                            self.try_apply_pending();
+                        } else {
+                            self.trigger_load_pipelines_for(keys.clone());
+                            self.trigger_load_approvals_for(keys);
+                        }
                     }
-                    Err(e) => self.error = Some(e),
+                    Err(e) => {
+                        self.loading = false;
+                        self.error = Some(e);
+                    }
                 }
             }
             AppEvent::DiffLoaded(result) => {
@@ -282,10 +327,12 @@ impl App {
                 }
             }
             AppEvent::ApprovalsLoaded(approvals) => {
-                self.approvals = approvals;
+                self.pending_approvals = Some(approvals);
+                self.try_apply_pending();
             }
             AppEvent::PipelinesLoaded(pipelines) => {
-                self.pipelines = pipelines;
+                self.pending_pipelines = Some(pipelines);
+                self.try_apply_pending();
             }
             AppEvent::WorktreeCreated(result) => {
                 match result {

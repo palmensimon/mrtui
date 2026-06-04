@@ -58,13 +58,20 @@ impl MergeRequest {
         }
         match self.detailed_merge_status.as_str() {
             "mergeable" => "Mergeable",
-            "not_approved" => "Needs Approval",
-            "checking" => "Checking",
+            "not_approved" | "approval_rules_not_satisfied" => "Needs Approval",
+            "checking" | "unchecked" | "preparing" => "Checking",
             "blocked_status" => "Blocked",
             "discussions_not_resolved" => "Open Discussions",
             "merge_request_blocked" => "MR Blocked",
             "ci_must_pass" => "CI Required",
             "ci_still_running" => "CI Running",
+            "broken_status" => "Conflicts",
+            "need_rebase" => "Needs Rebase",
+            "draft_status" => "Draft",
+            "commits_status" => "No Commits",
+            "status_checks_must_pass" => "Status Checks",
+            "jira_association_missing" => "Jira Required",
+            "not_open" => "Closed",
             _ => "Open",
         }
     }
